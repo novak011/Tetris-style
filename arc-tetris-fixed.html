@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARC BLOCKS — On-Chain Tetris</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #03050f;
+    --panel: #080d1a;
+    --border: #0d2244;
+    --accent: #00d4ff;
+    --accent2: #7b2fff;
+    --accent3: #ff6b35;
+    --text: #c8deff;
+    --dim: #3a5070;
+    --grid: #0a1628;
+    --glow: 0 0 20px rgba(0,212,255,0.4);
+    --glow2: 0 0 20px rgba(123,47,255,0.4);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  /* scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* animated bg grid */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridMove 20s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  @keyframes gridMove {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(40px); }
+  }
+
+  header {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 900px;
+    padding: 24px 24px 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 28px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    text-shadow: var(--glow);
+  }
+
+  .logo span { color: var(--accent2); }
+
+  .chain-badge {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(0,212,255,0.06);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--accent);
+  }
+
+  .chain-dot {
+    width: 7px; height: 7px;
+    background: #00ff88;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #00ff88;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .game-wrapper {
+    position: relative; z-index: 1;
+    display: flex; gap: 20px; align-items: flex-start;
+    padding: 24px;
+    width: 100%; max-width: 900px;
+  }
+
+  /* LEFT PANEL */
+  .left-panel {
+    display: flex; flex-direction: column; gap: 14px;
+    width: 180px; flex-shrink: 0;
+  }
+
+  .panel-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .panel-box::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+
+  .panel-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .panel-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    line-height: 1;
+  }
+
+  .panel-value.purple { color: var(--accent2); text-shadow: var(--glow2); }
+  .panel-value.orange { color: var(--accent3); text-shadow: 0 0 20px rgba(255,107,53,0.4); }
+
+  /* NEXT PIECE */
+  #next-canvas {
+    display: block;
+    margin: 4px auto 0;
+  }
+
+  /* MAIN CANVAS */
+  .game-center {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+
+  #game-canvas {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 0 40px rgba(0,212,255,0.08), inset 0 0 30px rgba(0,0,0,0.6);
+    image-rendering: pixelated;
+  }
+
+  /* RIGHT PANEL */
+  .right-panel {
+    display: flex; flex-direction: column; gap: 14px;
+    width: 180px; flex-shrink: 0;
+  }
+
+  /* CONTROLS */
+  .controls-list {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  .ctrl-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .ctrl-key {
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+
+  /* LEADERBOARD */
+  .lb-entry {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 11px;
+  }
+
+  .lb-rank {
+    width: 18px; height: 18px;
+    background: rgba(0,212,255,0.1);
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .lb-addr { color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .lb-score { color: var(--accent2); font-size: 12px; }
+
+  /* WALLET BUTTON */
+  .wallet-btn {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(123,47,255,0.1));
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 8px;
+    color: var(--accent);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .wallet-btn:hover {
+    background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(123,47,255,0.2));
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+  }
+
+  .wallet-btn.connected {
+    border-color: #00ff88;
+    color: #00ff88;
+    box-shadow: 0 0 12px rgba(0,255,136,0.2);
+  }
+
+  /* OVERLAY */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(3,5,15,0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    border-radius: 4px;
+    z-index: 10;
+  }
+
+  .overlay-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 32px;
+    font-weight: 900;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    letter-spacing: 6px;
+    text-align: center;
+  }
+
+  .overlay-sub {
+    font-size: 12px;
+    color: var(--dim);
+    letter-spacing: 3px;
+    text-align: center;
+  }
+
+  .start-btn {
+    padding: 14px 40px;
+    background: transparent;
+    border: 2px solid var(--accent);
+    border-radius: 4px;
+    color: var(--accent);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .start-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--accent);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.2s;
+    z-index: -1;
+  }
+
+  .start-btn:hover { color: var(--bg); text-shadow: none; }
+  .start-btn:hover::before { transform: scaleX(1); }
+
+  .final-score {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 48px;
+    font-weight: 900;
+    color: var(--accent2);
+    text-shadow: var(--glow2);
+  }
+
+  /* SUBMIT SCORE */
+  .submit-btn {
+    padding: 10px 28px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .submit-btn:hover { opacity: 0.85; }
+  .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .tx-status {
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+    letter-spacing: 1px;
+    max-width: 220px;
+  }
+
+  .tx-status.ok { color: #00ff88; }
+  .tx-status.err { color: #ff4466; }
+
+  /* canvas container for overlay positioning */
+  .canvas-container {
+    position: relative;
+  }
+
+  /* mobile controls */
+  .mobile-controls {
+    display: none;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .m-btn {
+    width: 52px; height: 52px;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 8px;
+    color: var(--accent);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .m-btn:active { background: rgba(0,212,255,0.2); }
+
+  @media (max-width: 680px) {
+    .left-panel, .right-panel { display: none; }
+    .game-wrapper { padding: 12px; justify-content: center; }
+    .mobile-controls { display: flex; }
+    .logo { font-size: 20px; }
+  }
+
+  /* line clear flash */
+  @keyframes flashRow {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ARC<span>BLOCKS</span></div>
+  <div class="chain-badge">
+    <div class="chain-dot"></div>
+    ARC TESTNET
+  </div>
+</header>
+
+<div class="game-wrapper">
+
+  <!-- LEFT -->
+  <div class="left-panel">
+    <div class="panel-box">
+      <div class="panel-label">Score</div>
+      <div class="panel-value" id="score-display">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="panel-label">Level</div>
+      <div class="panel-value purple" id="level-display">1</div>
+    </div>
+    <div class="panel-box">
+      <div class="panel-label">Lines</div>
+      <div class="panel-value orange" id="lines-display">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="panel-label">Next</div>
+      <canvas id="next-canvas" width="100" height="80"></canvas>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div class="game-center">
+    <div class="canvas-container">
+      <canvas id="game-canvas" width="300" height="600"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="overlay-title" id="overlay-title">ARC BLOCKS</div>
+        <div class="overlay-sub" id="overlay-sub">ON-CHAIN TETRIS · ARC TESTNET</div>
+        <div class="final-score" id="final-score" style="display:none"></div>
+        <button class="start-btn" id="start-btn" onclick="startGame()">START GAME</button>
+        <button class="submit-btn" id="submit-btn" style="display:none" onclick="submitScore()">SUBMIT TO CHAIN</button>
+        <div class="tx-status" id="tx-status"></div>
+      </div>
+    </div>
+    <div class="mobile-controls">
+      <button class="m-btn" onclick="moveLeft()">←</button>
+      <button class="m-btn" onclick="rotatePiece()">↻</button>
+      <button class="m-btn" onclick="hardDrop()">↓↓</button>
+      <button class="m-btn" onclick="moveRight()">→</button>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-panel">
+    <div class="panel-box">
+      <div class="panel-label">Wallet</div>
+      <button class="wallet-btn" id="wallet-btn" onclick="connectWallet()">CONNECT</button>
+      <div style="margin-top:8px; font-size:10px; color:var(--dim); word-break:break-all; line-height:1.4;" id="wallet-addr"></div>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-label">Controls</div>
+      <div class="controls-list">
+        <div class="ctrl-row"><span>Move</span><span class="ctrl-key">← →</span></div>
+        <div class="ctrl-row"><span>Rotate</span><span class="ctrl-key">↑</span></div>
+        <div class="ctrl-row"><span>Soft drop</span><span class="ctrl-key">↓</span></div>
+        <div class="ctrl-row"><span>Hard drop</span><span class="ctrl-key">SPC</span></div>
+        <div class="ctrl-row"><span>Pause</span><span class="ctrl-key">P</span></div>
+      </div>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-label">Leaderboard</div>
+      <div id="leaderboard">
+        <div style="font-size:11px; color:var(--dim); letter-spacing:1px;">Connect wallet<br>to view scores</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────
+const COLS = 10, ROWS = 20, BLOCK = 30;
+const COLORS = [
+  null,
+  '#00d4ff', // I - cyan
+  '#7b2fff', // O - purple
+  '#ff6b35', // T - orange
+  '#00ff88', // S - green
+  '#ff4466', // Z - red
+  '#ffd700', // J - gold
+  '#ff88cc', // L - pink
+];
+
+const PIECES = [
+  null,
+  [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
+  [[2,2],[2,2]],                               // O
+  [[0,3,0],[3,3,3],[0,0,0]],                   // T
+  [[0,4,4],[4,4,0],[0,0,0]],                   // S
+  [[5,5,0],[0,5,5],[0,0,0]],                   // Z
+  [[6,0,0],[6,6,6],[0,0,0]],                   // J
+  [[0,0,7],[7,7,7],[0,0,0]],                   // L
+];
+
+const SCORE_TABLE = [0, 100, 300, 500, 800];
+const ARC_RPC = 'https://rpc.testnet.arc.network';
+
+// ─── GAME STATE ──────────────────────────────────────────────
+let board, piece, pieceX, pieceY, nextPiece;
+let score, level, lines, gameOver, paused, running;
+let dropInterval, lastDrop, animFrame;
+let walletAddress = null;
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const nCanvas = document.getElementById('next-canvas');
+const nCtx = nCanvas.getContext('2d');
+
+// ─── INIT ─────────────────────────────────────────────────────
+function newBoard() {
+  return Array.from({length: ROWS}, () => Array(COLS).fill(0));
+}
+
+function randomPiece() {
+  return Math.floor(Math.random() * 7) + 1;
+}
+
+function startGame() {
+  board = newBoard();
+  score = 0; level = 1; lines = 0;
+  gameOver = false; paused = false; running = true;
+  nextPiece = randomPiece();
+  spawnPiece();
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('submit-btn').style.display = 'none';
+  document.getElementById('tx-status').textContent = '';
+  updateHUD();
+  lastDrop = performance.now();
+  cancelAnimationFrame(animFrame);
+  loop();
+}
+
+function spawnPiece() {
+  const id = nextPiece;
+  nextPiece = randomPiece();
+  const shape = PIECES[id];
+  pieceX = Math.floor((COLS - shape[0].length) / 2);
+  pieceY = 0;
+  piece = { id, shape };
+  if (!canPlace(piece.shape, pieceX, pieceY)) {
+    endGame();
+  }
+  drawNext();
+}
+
+// ─── GAME LOOP ────────────────────────────────────────────────
+function loop(now = 0) {
+  if (!running) return;
+  animFrame = requestAnimationFrame(loop);
+  const speed = Math.max(100, 800 - (level - 1) * 70);
+  if (now - lastDrop > speed) {
+    if (!paused) tick();
+    lastDrop = now;
+  }
+  draw();
+}
+
+function tick() {
+  if (!canPlace(piece.shape, pieceX, pieceY + 1)) {
+    lockPiece();
+    clearLines();
+    spawnPiece();
+  } else {
+    pieceY++;
+  }
+}
+
+// ─── MOVEMENT ────────────────────────────────────────────────
+function canPlace(shape, x, y) {
+  for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[r].length; c++)
+      if (shape[r][c]) {
+        if (x+c < 0 || x+c >= COLS || y+r >= ROWS) return false;
+        if (y+r >= 0 && board[y+r][x+c]) return false;
+      }
+  return true;
+}
+
+function rotate(shape) {
+  return shape[0].map((_, i) => shape.map(r => r[i]).reverse());
+}
+
+function moveLeft()  { if (!paused && canPlace(piece.shape, pieceX-1, pieceY)) pieceX--; }
+function moveRight() { if (!paused && canPlace(piece.shape, pieceX+1, pieceY)) pieceX++; }
+
+function rotatePiece() {
+  if (paused) return;
+  const r = rotate(piece.shape);
+  if (canPlace(r, pieceX, pieceY)) { piece.shape = r; return; }
+  if (canPlace(r, pieceX-1, pieceY)) { piece.shape = r; pieceX--; return; }
+  if (canPlace(r, pieceX+1, pieceY)) { piece.shape = r; pieceX++; }
+}
+
+function softDrop() {
+  if (!paused && canPlace(piece.shape, pieceX, pieceY+1)) { pieceY++; score += 1; updateHUD(); }
+}
+
+function hardDrop() {
+  if (paused) return;
+  let dropped = 0;
+  while (canPlace(piece.shape, pieceX, pieceY+1)) { pieceY++; dropped++; }
+  score += dropped * 2;
+  lockPiece();
+  clearLines();
+  spawnPiece();
+  updateHUD();
+}
+
+function lockPiece() {
+  piece.shape.forEach((row, r) =>
+    row.forEach((v, c) => {
+      if (v && pieceY+r >= 0) board[pieceY+r][pieceX+c] = piece.id;
+    })
+  );
+}
+
+function clearLines() {
+  let cleared = 0;
+  for (let r = ROWS-1; r >= 0; r--) {
+    if (board[r].every(v => v)) {
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(0));
+      cleared++;
+      r++;
+    }
+  }
+  if (cleared) {
+    lines += cleared;
+    score += SCORE_TABLE[cleared] * level;
+    level = Math.floor(lines / 10) + 1;
+    updateHUD();
+    flashEffect();
+  }
+}
+
+function flashEffect() {
+  canvas.style.boxShadow = '0 0 60px rgba(0,212,255,0.8)';
+  setTimeout(() => { canvas.style.boxShadow = '0 0 40px rgba(0,212,255,0.08), inset 0 0 30px rgba(0,0,0,0.6)'; }, 150);
+}
+
+function endGame() {
+  running = false;
+  gameOver = true;
+  cancelAnimationFrame(animFrame);
+  showOverlay();
+}
+
+// ─── DRAWING ─────────────────────────────────────────────────
+function drawBlock(context, x, y, colorId, alpha = 1) {
+  const color = COLORS[colorId];
+  const px = x * BLOCK, py = y * BLOCK;
+  context.globalAlpha = alpha;
+
+  // main fill
+  context.fillStyle = color;
+  context.fillRect(px+1, py+1, BLOCK-2, BLOCK-2);
+
+  // top/left highlight
+  context.fillStyle = 'rgba(255,255,255,0.25)';
+  context.fillRect(px+1, py+1, BLOCK-2, 3);
+  context.fillRect(px+1, py+1, 3, BLOCK-2);
+
+  // bottom/right shadow
+  context.fillStyle = 'rgba(0,0,0,0.35)';
+  context.fillRect(px+1, py+BLOCK-4, BLOCK-2, 3);
+  context.fillRect(px+BLOCK-4, py+1, 3, BLOCK-2);
+
+  // inner glow
+  context.fillStyle = 'rgba(255,255,255,0.06)';
+  context.fillRect(px+4, py+4, BLOCK-8, BLOCK-8);
+
+  context.globalAlpha = 1;
+}
+
+function getGhostY() {
+  let gy = pieceY;
+  while (canPlace(piece.shape, pieceX, gy+1)) gy++;
+  return gy;
+}
+
+function draw() {
+  // background
+  ctx.fillStyle = '#03050f';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // grid lines
+  ctx.strokeStyle = 'rgba(13,34,68,0.8)';
+  ctx.lineWidth = 0.5;
+  for (let c = 0; c <= COLS; c++) {
+    ctx.beginPath(); ctx.moveTo(c*BLOCK, 0); ctx.lineTo(c*BLOCK, ROWS*BLOCK); ctx.stroke();
+  }
+  for (let r = 0; r <= ROWS; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r*BLOCK); ctx.lineTo(COLS*BLOCK, r*BLOCK); ctx.stroke();
+  }
+
+  // placed blocks
+  board.forEach((row, r) =>
+    row.forEach((v, c) => { if (v) drawBlock(ctx, c, r, v); })
+  );
+
+  // ghost piece
+  if (running && !paused) {
+    const gy = getGhostY();
+    piece.shape.forEach((row, r) =>
+      row.forEach((v, c) => { if (v) drawBlock(ctx, pieceX+c, gy+r, piece.id, 0.18); })
+    );
+  }
+
+  // active piece
+  if (running) {
+    piece.shape.forEach((row, r) =>
+      row.forEach((v, c) => { if (v) drawBlock(ctx, pieceX+c, pieceY+r, piece.id); })
+    );
+  }
+
+  // pause overlay
+  if (paused) {
+    ctx.fillStyle = 'rgba(3,5,15,0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#00d4ff';
+    ctx.font = "bold 28px 'Orbitron', sans-serif";
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', canvas.width/2, canvas.height/2);
+    ctx.font = "12px 'Share Tech Mono', monospace";
+    ctx.fillStyle = '#3a5070';
+    ctx.fillText('PRESS P TO RESUME', canvas.width/2, canvas.height/2 + 36);
+  }
+}
+
+function drawNext() {
+  nCtx.fillStyle = '#03050f';
+  nCtx.fillRect(0, 0, nCanvas.width, nCanvas.height);
+  const shape = PIECES[nextPiece];
+  const nb = 20;
+  const ox = Math.floor((nCanvas.width - shape[0].length * nb) / 2);
+  const oy = Math.floor((nCanvas.height - shape.length * nb) / 2);
+  shape.forEach((row, r) =>
+    row.forEach((v, c) => {
+      if (!v) return;
+      const color = COLORS[nextPiece];
+      const px = ox + c*nb, py = oy + r*nb;
+      nCtx.fillStyle = color;
+      nCtx.fillRect(px+1, py+1, nb-2, nb-2);
+      nCtx.fillStyle = 'rgba(255,255,255,0.2)';
+      nCtx.fillRect(px+1, py+1, nb-2, 2);
+    })
+  );
+}
+
+// ─── HUD ──────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('score-display').textContent = score.toLocaleString();
+  document.getElementById('level-display').textContent = level;
+  document.getElementById('lines-display').textContent = lines;
+}
+
+// ─── OVERLAY ──────────────────────────────────────────────────
+function showOverlay() {
+  const overlay = document.getElementById('overlay');
+  overlay.style.display = 'flex';
+
+  document.getElementById('overlay-title').textContent = 'GAME OVER';
+  document.getElementById('overlay-sub').textContent = 'YOUR FINAL SCORE';
+  document.getElementById('final-score').style.display = 'block';
+  document.getElementById('final-score').textContent = score.toLocaleString();
+  document.getElementById('start-btn').textContent = 'PLAY AGAIN';
+
+  if (walletAddress) {
+    document.getElementById('submit-btn').style.display = 'block';
+  }
+}
+
+// ─── KEYBOARD ────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (!running && e.code !== 'Enter') return;
+  switch(e.code) {
+    case 'ArrowLeft':  e.preventDefault(); moveLeft(); break;
+    case 'ArrowRight': e.preventDefault(); moveRight(); break;
+    case 'ArrowUp':    e.preventDefault(); rotatePiece(); break;
+    case 'ArrowDown':  e.preventDefault(); softDrop(); break;
+    case 'Space':      e.preventDefault(); hardDrop(); break;
+    case 'KeyP':       paused = !paused; break;
+  }
+});
+
+// ─── WALLET ──────────────────────────────────────────────────
+async function connectWallet() {
+  if (!window.ethereum) {
+    alert('Please install MetaMask first!\nhttps://metamask.io');
+    return;
+  }
+
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    walletAddress = accounts[0];
+
+    // Try to switch to Arc Testnet
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x4CEAD2' }], 
+      });
+    } catch (switchErr) {
+      if (switchErr.code === 4902) {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x4CEAD2',
+            chainName: 'Arc Testnet',
+            nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
+            rpcUrls: [ARC_RPC],
+            blockExplorers: [{ name: 'ArcScan', url: 'https://testnet.arcscan.app' }],
+          }],
+        });
+      }
+    }
+
+    const btn = document.getElementById('wallet-btn');
+    btn.textContent = 'CONNECTED';
+    btn.classList.add('connected');
+
+    const short = walletAddress.slice(0,6) + '...' + walletAddress.slice(-4);
+    document.getElementById('wallet-addr').textContent = short;
+
+    loadLeaderboard();
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById('wallet-addr').textContent = 'Connection failed';
+  }
+}
+
+// ─── SUBMIT SCORE (on-chain via eth_sendTransaction) ─────────
+async function submitScore() {
+  if (!walletAddress) return;
+
+  const btn = document.getElementById('submit-btn');
+  const status = document.getElementById('tx-status');
+  btn.disabled = true;
+  status.className = 'tx-status';
+  status.textContent = 'Sending transaction...';
+
+  try {
+    // Encode score as hex data (simple data payload)
+    const scoreHex = score.toString(16).padStart(64, '0');
+    const data = '0x' + // "ARCSCORE" marker + score
+      Buffer.from('ARCBLOCKS_SCORE').toString('hex').padEnd(64, '0') + scoreHex;
+
+    const txHash = await window.ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: walletAddress,
+        to: walletAddress, // self-tx to store score on-chain
+        value: '0x0',
+        data: '0x' + Array.from(new TextEncoder().encode(`ARCBLOCKS:${score}`))
+                         .map(b => b.toString(16).padStart(2,'0')).join(''),
+        gas: '0x5208',
+      }],
+    });
+
+    status.className = 'tx-status ok';
+    status.innerHTML = `✓ Score saved on-chain!<br><span style="color:var(--dim);font-size:10px">${txHash.slice(0,18)}...</span>`;
+
+    saveLocalScore(walletAddress, score);
+    loadLeaderboard();
+
+  } catch (err) {
+    status.className = 'tx-status err';
+    status.textContent = err.code === 4001 ? '✗ Transaction rejected' : '✗ ' + (err.message || 'Failed');
+    btn.disabled = false;
+  }
+}
+
+// ─── LOCAL LEADERBOARD ───────────────────────────────────────
+function saveLocalScore(addr, s) {
+  const key = 'arcblocks_scores';
+  let scores = JSON.parse(localStorage.getItem(key) || '[]');
+  const existing = scores.find(e => e.addr === addr);
+  if (existing) {
+    if (s > existing.score) existing.score = s;
+  } else {
+    scores.push({ addr, score: s });
+  }
+  scores.sort((a,b) => b.score - a.score);
+  scores = scores.slice(0, 10);
+  localStorage.setItem(key, JSON.stringify(scores));
+}
+
+function loadLeaderboard() {
+  const key = 'arcblocks_scores';
+  const scores = JSON.parse(localStorage.getItem(key) || '[]');
+  const lb = document.getElementById('leaderboard');
+
+  if (!scores.length) {
+    lb.innerHTML = '<div style="font-size:11px;color:var(--dim);">No scores yet.<br>Play & submit!</div>';
+    return;
+  }
+
+  lb.innerHTML = scores.slice(0,5).map((e, i) => `
+    <div class="lb-entry">
+      <div class="lb-rank">${i+1}</div>
+      <div class="lb-addr">${e.addr.slice(0,6)}...${e.addr.slice(-3)}</div>
+      <div class="lb-score">${e.score.toLocaleString()}</div>
+    </div>
+  `).join('');
+}
+
+// ─── INIT RENDER ─────────────────────────────────────────────
+board = newBoard();
+piece = { id: 1, shape: PIECES[1] };
+pieceX = 3; pieceY = 0;
+nextPiece = randomPiece();
+draw();
+drawNext();
+loadLeaderboard();
+</script>
+</body>
+</html>
